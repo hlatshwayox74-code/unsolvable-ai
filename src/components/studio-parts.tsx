@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { PROVIDERS, TERMINAL, type JobView, type ModelDef } from "../../shared/catalog.ts"
-import { cancelJob, deleteJob, upload, type AppConfig, type UploadResult } from "../lib/api.ts"
+import { cancelJob, deleteJob, upload, visibleModels, type AppConfig, type UploadResult } from "../lib/api.ts"
 import { useAuth } from "../lib/auth.tsx"
 import { costLabel, elapsed, timeAgo, usd } from "../lib/format.ts"
 import { Icon, Notice, Spinner } from "./ui.tsx"
@@ -30,8 +30,16 @@ export function SetupGate({ config, models, configError }: { config: AppConfig |
       </Notice>
     )
   }
-  const missing = [...new Set(models.map((m) => m.provider))].filter((p) => !config.providers[p])
-  if (missing.length === new Set(models.map((m) => m.provider)).size) {
+  const usable = visibleModels(config, models)
+  const missing = [...new Set(usable.map((m) => m.provider))].filter((p) => !config.providers[p])
+  if (missing.includes("engine") && missing.length === new Set(usable.map((m) => m.provider)).size) {
+    return (
+      <Notice tone="warn" action={<Link to="/studio/settings" className="btn btn-ghost py-2">See setup</Link>}>
+        The self-hosted engine isn't connected yet. Start it on a GPU machine, then add <code>ENGINE_URL</code> and <code>ENGINE_TOKEN</code> in Netlify (see docs/ENGINE.md).
+      </Notice>
+    )
+  }
+  if (missing.length && missing.length === new Set(usable.map((m) => m.provider)).size) {
     return (
       <Notice tone="warn" action={<Link to="/studio/settings" className="btn btn-ghost py-2">See setup</Link>}>
         No provider key is set for this tool yet. Add {missing.map((p) => PROVIDERS[p].envKey).join(" or ")} in Netlify to start generating.
@@ -48,7 +56,7 @@ export function ModelPicker({
     <fieldset>
       <legend className="label">Model</legend>
       <div className="grid gap-1.5">
-        {models.map((m) => {
+        {visibleModels(config, models).map((m) => {
           const ready = config ? config.providers[m.provider] : true
           const active = m.id === value
           return (
@@ -64,7 +72,8 @@ export function ModelPicker({
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="font-semibold">{m.label}</span>
                   {m.lifecycle === "preview" && <span className="rounded bg-coal-3 px-1.5 py-px text-[11px] font-semibold text-mist">Preview</span>}
-                  {!ready && <span className="rounded bg-alert/15 px-1.5 py-px text-[11px] font-semibold text-[#ffb3ad]">Needs {PROVIDERS[m.provider].label} key</span>}
+                  {m.provider === "engine" && <span className="rounded bg-signal/15 px-1.5 py-px text-[11px] font-semibold text-signal">Self-hosted{m.license ? ` · ${m.license}` : ""}</span>}
+                  {!ready && <span className="rounded bg-alert/15 px-1.5 py-px text-[11px] font-semibold text-[#ffb3ad]">{m.provider === "engine" ? "Engine not connected" : `Needs ${PROVIDERS[m.provider].label} key`}</span>}
                 </span>
                 <span className="mt-0.5 block text-[13px] leading-snug text-smoke">{m.summary}</span>
                 {active && <span className="mt-1 block text-[12px] text-mist">{m.priceNote}</span>}
@@ -238,9 +247,27 @@ export function JobCard({ job, onRetry, onUse }: { job: JobView; onRetry?(j: Job
           {!running && onRetry && <button className="btn btn-quiet text-[13px]" onClick={() => onRetry(job)} title="Load these settings back into the form"><Icon name="retry" /> Reuse settings</button>}
           {!running && <button className="btn btn-quiet text-[13px]" disabled={!!busy} onClick={() => act("delete")} aria-label="Delete"><Icon name="trash" /></button>}
         </div>
+        {job.provenance && <ProvenanceLine p={job.provenance} />}
         {err && <p className="text-[12.5px] text-[#ffb3ad]">{err}</p>}
       </div>
     </article>
+  )
+}
+
+/** Which self-hosted model made this, on what hardware, and what the automatic checks found. */
+function ProvenanceLine({ p }: { p: NonNullable<JobView["provenance"]> }) {
+  const bits = [
+    `Made on our engine with ${p.model}${p.license ? ` (${p.license})` : ""}`,
+    p.seconds !== undefined ? `${p.seconds < 90 ? `${p.seconds.toFixed(1)} s` : `${(p.seconds / 60).toFixed(1)} min`}${p.gpu ? ` on ${p.gpu}` : ""}` : null,
+    p.peakVramGb ? `${p.peakVramGb} GB GPU memory` : null,
+  ].filter(Boolean)
+  return (
+    <p className="text-[12px] leading-snug text-smoke">
+      {bits.join(" · ")}
+      {p.quality && (p.quality.passed
+        ? <span className="text-go"> · automatic checks passed</span>
+        : <span className="text-[#ffb3ad]"> · check failed: {p.quality.failed.join(", ")}</span>)}
+    </p>
   )
 }
 

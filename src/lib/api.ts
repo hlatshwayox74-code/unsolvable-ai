@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { GenerationRequest, JobView, ProviderId } from "../../shared/catalog.ts"
-import { TERMINAL } from "../../shared/catalog.ts"
+import type { GenerationRequest, JobView, ModelDef, ProviderId } from "../../shared/catalog.ts"
+import { PROVIDERS, TERMINAL } from "../../shared/catalog.ts"
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) {
@@ -30,12 +30,21 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export interface AppConfig {
   providers: Record<ProviderId, boolean>
-  director: "gemini" | "openai" | null
+  /** False (the default) means third-party AI APIs are switched off and only the self-hosted engine generates. */
+  externalProviders?: boolean
+  engine?: { online: boolean; gpu?: string | null; vramGb?: number; testMode?: boolean; queued?: number }
+  director: "gemini" | "openai" | "rules" | null
   storageReady: boolean
   credits: { enabled: boolean; balance: number | null }
   billing: { connected: boolean }
   generationRoles: string[]
   user: { id: string; email?: string; roles: string[]; canGenerate: boolean } | null
+}
+
+/** Models the person can use here: third-party models are hidden while external AI is switched off. */
+export function visibleModels(config: AppConfig | null, models: ModelDef[]): ModelDef[] {
+  if (config?.externalProviders) return models
+  return models.filter((m) => !PROVIDERS[m.provider].external)
 }
 
 let configCache: { at: number; value: AppConfig } | null = null

@@ -1,4 +1,4 @@
-import type { JobStatus } from "../../../shared/catalog.ts"
+import type { JobStatus, Provenance } from "../../../shared/catalog.ts"
 import type { JobRecord } from "../store.ts"
 
 export interface ImageInput {
@@ -18,6 +18,9 @@ export interface VideoInput {
 export interface ResolvedInputs {
   images: ImageInput[]
   video?: VideoInput
+  /** compose only: finished shots in order and an optional voiceover. */
+  videos?: VideoInput[]
+  audio?: VideoInput
 }
 
 /** Where to fetch a finished output from, or the bytes themselves. */
@@ -30,6 +33,7 @@ export interface PollResult {
   progress?: number
   error?: string
   outputs?: OutputSource[]
+  provenance?: Provenance
 }
 
 export interface ProviderAdapter {

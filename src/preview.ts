@@ -12,7 +12,7 @@ export function installPreviewApi() {
     const path = new URL(url, location.href).pathname
     if (path.endsWith("/api/config")) {
       return Response.json({
-        providers: { runway: false, google: false, openai: false, elevenlabs: false, higgsfield: false },
+        providers: { engine: false, runway: false, google: false, openai: false, elevenlabs: false, higgsfield: false }, externalProviders: false,
         director: null, storageReady: true, credits: { enabled: false, balance: null },
         billing: { connected: false }, generationRoles: ["admin", "creator"], user: null,
       })

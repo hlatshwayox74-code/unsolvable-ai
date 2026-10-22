@@ -1,5 +1,18 @@
 # Project status — 22 October 2026
 
+## Independent engine (latest)
+
+Third-party AI APIs are **switched off by default** (`ALLOW_EXTERNAL_PROVIDERS` must be `true` to
+use them). The studio now generates through our own self-hosted engine (`engine/`, docs/ENGINE.md):
+
+| Part | State |
+|---|---|
+| Engine API, queue, GPU model manager, cancel, real progress, metrics, usage log, provenance, quality checks | **Built and tested** (13 Python tests, no GPU needed) |
+| Ad assembler: shots + voiceover + burned-in captions → one MP4 (FFmpeg) | **Built and run for real** in tests |
+| FLUX.2 [klein] 4B images, Wan 2.2 TI2V-5B video, Kokoro-82M voice backends | **Written, not yet run on a GPU** (sandbox has none) |
+| Website: engine provider, external switch, rules-based director, Kokoro voices, provenance on every result, Ad Studio "Export MP4 with sound" | **Built and tested** (53 web tests) |
+| Needs from you | A GPU machine (rent a RunPod RTX 4090 or use your own), then `ENGINE_URL` + `ENGINE_TOKEN` in Netlify |
+
 ## Stage summary
 
 | Stage | State |

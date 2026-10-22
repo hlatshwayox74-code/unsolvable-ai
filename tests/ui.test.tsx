@@ -26,7 +26,7 @@ describe("marketing home", () => {
     expect(screen.getByLabelText("Describe a shot")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Open in studio/ })).toBeInTheDocument()
     // Price table comes from the shared catalogue
-    expect(screen.getAllByText(/Runway Gen-4.5/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Wan 2.2 TI2V-5B/).length).toBeGreaterThan(0)
   })
 })
 
@@ -38,7 +38,9 @@ describe("video workspace", () => {
   })
   it("shows the cost on the Generate button", async () => {
     wrap(<Workspace kind="video" />, "/studio/video?prompt=hello")
-    expect(await screen.findByRole("button", { name: /Generate.*90 credits.*0\.60/ })).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: /Generate.*17 credits/ })).toBeInTheDocument()
+    expect(screen.getAllByText(/Wan 2\.2 TI2V-5B/).length).toBeGreaterThan(0)
+    expect(screen.queryByText("Runway Gen-4.5")).toBeNull() // third-party models hidden by default
   })
   it("prefills the prompt from the link", () => {
     wrap(<Workspace kind="video" />, "/studio/video?prompt=a%20red%20car")

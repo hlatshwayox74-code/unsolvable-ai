@@ -30,11 +30,108 @@ beforeEach(() => {
   stores.clear()
   process.env.MEDIA_SIGNING_SECRET = SECRET
   process.env.RUNWAY_API_KEY = "rk_test"
+  process.env.ALLOW_EXTERNAL_PROVIDERS = "true"
 })
 afterEach(() => {
   vi.unstubAllGlobals()
-  delete process.env.RUNWAY_API_KEY
-  delete process.env.OPENAI_API_KEY
+  for (const k of ["RUNWAY_API_KEY", "OPENAI_API_KEY", "ALLOW_EXTERNAL_PROVIDERS", "ENGINE_URL", "ENGINE_TOKEN"]) delete process.env[k]
+})
+
+describe("third-party AI switch", () => {
+  it("refuses external providers by default, even with a key present", async () => {
+    delete process.env.ALLOW_EXTERNAL_PROVIDERS
+    const f = vi.fn()
+    vi.stubGlobal("fetch", f)
+    await expect(jobs.createJob(actor, { modelId: "runway-gen45", mode: "t2v", prompt: "x", params: {} }, "https://site"))
+      .rejects.toMatchObject({ status: 403, code: "external_disabled" })
+    expect(f).not.toHaveBeenCalled()
+    const { providerStatus } = await import("../netlify/lib/providers/index.ts")
+    expect(providerStatus().runway).toBe(false)
+  })
+  it("falls back to the rules-based director with no AI calls", async () => {
+    delete process.env.ALLOW_EXTERNAL_PROVIDERS
+    process.env.OPENAI_API_KEY = "sk_test"
+    const f = vi.fn()
+    vi.stubGlobal("fetch", f)
+    const { runDirector, directorConfigured } = await import("../netlify/lib/director.ts")
+    expect(directorConfigured()).toBe("rules")
+    const brief = "Brand: UNSOLVABLE\nProduct: Problem Solver Hoodie\nSelling points (stated by the brand): 400gsm cotton; oversized fit\nAudience: streetwear buyers\nOffer or price (use exactly, or leave out): none\nTone: street: confident\nCall to action: Shop the drop"
+    const r = await runDirector({ task: "brief", text: brief }) as { concepts: { funnel: string; headline: string }[] }
+    expect(r.concepts.map((c) => c.funnel)).toEqual(["top", "middle", "bottom"])
+    const sb = await runDirector({ task: "storyboard", text: brief + "\nTotal length: about 15 seconds" }) as { shots: { seconds: number }[]; voiceoverScript: string }
+    expect(sb.shots).toHaveLength(3)
+    expect(sb.voiceoverScript).toMatch(/Shop the drop/)
+    await expect(runDirector({ task: "analyse-product", text: "" })).rejects.toMatchObject({ status: 503 })
+    expect(f).not.toHaveBeenCalled()
+  })
+})
+
+describe("self-hosted engine", () => {
+  beforeEach(() => {
+    delete process.env.ALLOW_EXTERNAL_PROVIDERS
+    process.env.ENGINE_URL = "https://gpu.example.com"
+    process.env.ENGINE_TOKEN = "e".repeat(32)
+  })
+
+  it("submits to our engine, reports real progress and provenance, and stores the output", async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    let polls = 0
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      if (url === "https://gpu.example.com/v1/jobs") return Response.json({ id: "e1", status: "queued" }, { status: 202 })
+      if (url === "https://gpu.example.com/v1/jobs/e1") {
+        polls++
+        const base = { id: "e1", model: "flux2-klein-4b", modelName: "FLUX.2 [klein] 4B", modelVersion: "FLUX.2-klein-4B", license: "Apache-2.0", error: null }
+        return polls === 1
+          ? Response.json({ ...base, status: "processing", progress: 0.5, outputs: [], metrics: {} })
+          : Response.json({ ...base, status: "completed", progress: 1, outputs: [{ index: 0, contentType: "image/webp" }],
+            metrics: { seconds: 4.2, gpu: "NVIDIA GeForce RTX 4090", peakVramGb: 12.8, estCostUsd: 0.0008 },
+            quality: { passed: true, checks: [{ name: "not_blank", passed: true }] } })
+      }
+      if (url === "https://gpu.example.com/v1/jobs/e1/outputs/0") return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/webp" } })
+      return new Response("unexpected " + url, { status: 500 })
+    }))
+    const job = await jobs.createJob(actor, { modelId: "flux2-klein-4b", mode: "t2i", prompt: "a hoodie", params: { aspect: "9:16", variations: 1 } }, "https://site")
+    expect(job.status).toBe("processing")
+    const submit = calls[0]
+    expect((submit.init!.headers as Record<string, string>).Authorization).toBe(`Bearer ${"e".repeat(32)}`)
+    expect(JSON.parse(String(submit.init!.body))).toMatchObject({ model: "flux2-klein-4b", mode: "t2i", params: { width: 784, height: 1408, variations: 1 } })
+
+    job.lastPolledAt = 0
+    expect((await jobs.refreshJob(job)).progress).toBe(0.5)
+    job.lastPolledAt = 0
+    const done = await jobs.refreshJob(job)
+    expect(done.status).toBe("completed")
+    expect(done.provenance).toMatchObject({ engine: "self-hosted", model: "FLUX.2 [klein] 4B", license: "Apache-2.0", gpu: "NVIDIA GeForce RTX 4090", quality: { passed: true, failed: [] } })
+    const out = calls.find((c) => c.url.endsWith("/outputs/0"))!
+    expect((out.init!.headers as Record<string, string>).Authorization).toMatch(/^Bearer /)
+    expect(store.toView(done).provenance?.seconds).toBe(4.2)
+  })
+
+  it("assembles an ad from the user's own shots and voiceover via signed links", async () => {
+    let body: Record<string, unknown> = {}
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "https://gpu.example.com/v1/jobs") { body = JSON.parse(String(init!.body)); return Response.json({ id: "c1" }, { status: 202 }) }
+      return new Response("unexpected", { status: 500 })
+    }))
+    const v = "ast_aaaaaaaaaaaaaaaaaaaaaaaa", a = "ast_bbbbbbbbbbbbbbbbbbbbbbbb"
+    await store.putMedia(actor.id, v, new Uint8Array([1]).buffer, { contentType: "video/mp4", kind: "video", source: "output" })
+    await store.putMedia(actor.id, a, new Uint8Array([1]).buffer, { contentType: "audio/wav", kind: "audio", source: "output" })
+    const job = await jobs.createJob(actor, {
+      modelId: "engine-compose", mode: "compose", prompt: "", videoRefs: [v, v], audioRef: a,
+      params: { aspect: "9:16", captions: [{ start: 0, end: 2, text: "BEYOND LIMITS." }, { start: 3, end: 2, text: "bad" }] },
+    }, "https://site")
+    expect(job.status).toBe("processing")
+    expect(body).toMatchObject({ model: "compose", mode: "compose", params: { width: 1080, height: 1920, captions: [{ text: "BEYOND LIMITS." }] } })
+    expect((body.videoUrls as string[])).toHaveLength(2)
+    expect(String(body.audioUrl)).toMatch(/^https:\/\/site\/api\/media\/ast_b.*[?&]s=/)
+  })
+
+  it("explains when the engine isn't connected", async () => {
+    delete process.env.ENGINE_URL
+    await expect(jobs.createJob(actor, { modelId: "kokoro-82m", mode: "tts", prompt: "hi", params: { voiceId: "af_heart" } }, "https://site"))
+      .rejects.toMatchObject({ status: 503, message: expect.stringMatching(/ENGINE_URL/) })
+  })
 })
 
 describe("upload sniffing", () => {

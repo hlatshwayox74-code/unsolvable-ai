@@ -21,7 +21,7 @@ export default function Dashboard() {
   const setup = [
     { done: !!user, label: "Sign in", to: "/login" },
     { done: !!config?.storageReady, label: "Add MEDIA_SIGNING_SECRET in Netlify", to: "/studio/settings" },
-    { done: !!config && Object.values(config.providers).some(Boolean), label: "Add at least one provider key", to: "/studio/settings" },
+    { done: !!config && Object.values(config.providers).some(Boolean), label: "Connect the self-hosted engine (ENGINE_URL, ENGINE_TOKEN)", to: "/studio/settings" },
     { done: !!config?.user?.canGenerate, label: "Get generation access (admin or creator role)", to: "/studio/help" },
   ]
   const ready = setup.every((s) => s.done)
@@ -63,7 +63,7 @@ export default function Dashboard() {
         <section>
           <h2 className="mb-3 text-sm font-semibold text-mist">Connected providers</h2>
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(PROVIDERS) as ProviderId[]).map((p) => (
+            {(Object.keys(PROVIDERS) as ProviderId[]).filter((p) => !PROVIDERS[p].external || config.externalProviders).map((p) => (
               <span key={p} className={`rounded-full border px-3 py-1 text-[13px] font-semibold ${config.providers[p] ? "border-go/50 text-go" : "border-line text-smoke"}`}>
                 {PROVIDERS[p].label}{config.providers[p] ? "" : " — not set"}
               </span>

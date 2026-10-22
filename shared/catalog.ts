@@ -3,13 +3,16 @@
  * and what it costs. Imported by the React app (to render only valid controls) and by the
  * Netlify functions (to validate requests and compute cost estimates server-side).
  *
- * Every price here comes from the provider's official pricing page as read on 2026-10-22
- * (see docs/MODEL_RESEARCH.md). `priceBasis` says whether a price is verified or an estimate.
+ * Self-hosted models ("engine" provider) run on our own GPU with open-weight models; their cost is
+ * GPU time, estimated from measured or published speeds (see docs/INDEPENDENT_AI_STACK.md).
+ * External providers' prices come from their official pricing pages as read on 2026-10-22
+ * (see docs/MODEL_RESEARCH.md). External providers are switched off unless
+ * ALLOW_EXTERNAL_PROVIDERS=true. `priceBasis` says whether a price is verified or an estimate.
  */
 
-export type ProviderId = "runway" | "google" | "openai" | "elevenlabs" | "higgsfield"
+export type ProviderId = "engine" | "runway" | "google" | "openai" | "elevenlabs" | "higgsfield"
 export type Kind = "image" | "video" | "audio"
-export type Mode = "t2i" | "i2i" | "t2v" | "i2v" | "v2v" | "tts"
+export type Mode = "t2i" | "i2i" | "t2v" | "i2v" | "v2v" | "tts" | "compose"
 export type Aspect = "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "3:2" | "2:3" | "21:9"
 
 export interface ModelDef {
@@ -36,15 +39,38 @@ export interface ModelDef {
   notes?: string[]
   priceBasis: "verified" | "estimate"
   priceNote: string
+  /** Licence of the open-weight model (self-hosted models only). */
+  license?: string
 }
 
-export const PROVIDERS: Record<ProviderId, { label: string; envKey: string; docs: string }> = {
-  runway: { label: "Runway", envKey: "RUNWAY_API_KEY", docs: "https://docs.dev.runwayml.com/" },
-  google: { label: "Google Gemini / Veo", envKey: "GEMINI_API_KEY", docs: "https://ai.google.dev/gemini-api/docs/veo" },
-  openai: { label: "OpenAI", envKey: "OPENAI_API_KEY", docs: "https://developers.openai.com/api/docs/guides/image-generation" },
-  elevenlabs: { label: "ElevenLabs", envKey: "ELEVENLABS_API_KEY", docs: "https://elevenlabs.io/docs" },
-  higgsfield: { label: "Higgsfield API", envKey: "HIGGSFIELD_API_KEY", docs: "https://docs.higgsfield.ai/" },
+export const PROVIDERS: Record<ProviderId, { label: string; envKey: string; docs: string; external: boolean }> = {
+  engine: { label: "Unsolvable Engine (self-hosted)", envKey: "ENGINE_URL", docs: "docs/ENGINE.md", external: false },
+  runway: { label: "Runway", envKey: "RUNWAY_API_KEY", docs: "https://docs.dev.runwayml.com/", external: true },
+  google: { label: "Google Gemini / Veo", envKey: "GEMINI_API_KEY", docs: "https://ai.google.dev/gemini-api/docs/veo", external: true },
+  openai: { label: "OpenAI", envKey: "OPENAI_API_KEY", docs: "https://developers.openai.com/api/docs/guides/image-generation", external: true },
+  elevenlabs: { label: "ElevenLabs", envKey: "ELEVENLABS_API_KEY", docs: "https://elevenlabs.io/docs", external: true },
+  higgsfield: { label: "Higgsfield API", envKey: "HIGGSFIELD_API_KEY", docs: "https://docs.higgsfield.ai/", external: true },
 }
+
+/** Our own GPU's hourly price, used to estimate self-hosted costs (RTX 4090 on-demand, mid-range). */
+export const ENGINE_GPU_USD_PER_HOUR = 0.69
+
+/** Engine output sizes per aspect ratio (multiples of 16, as the models require). */
+export const ENGINE_IMAGE_SIZE: Record<string, [number, number]> = {
+  "1:1": [1024, 1024], "3:2": [1536, 1024], "2:3": [1024, 1536], "16:9": [1408, 784], "9:16": [784, 1408],
+}
+export const ENGINE_VIDEO_SIZE: Record<string, [number, number]> = { "16:9": [1280, 704], "9:16": [704, 1280] }
+export const ENGINE_COMPOSE_SIZE: Record<string, [number, number]> = { "9:16": [1080, 1920], "16:9": [1920, 1080], "1:1": [1080, 1080] }
+
+/** Kokoro-82M preset voices (Apache 2.0). First letter: a = US English, b = UK English. */
+export const KOKORO_VOICES: { id: string; name: string }[] = [
+  { id: "af_heart", name: "Heart (US, female)" }, { id: "af_bella", name: "Bella (US, female)" },
+  { id: "af_nicole", name: "Nicole (US, female)" }, { id: "af_sarah", name: "Sarah (US, female)" },
+  { id: "af_sky", name: "Sky (US, female)" }, { id: "am_adam", name: "Adam (US, male)" },
+  { id: "am_michael", name: "Michael (US, male)" }, { id: "am_fenrir", name: "Fenrir (US, male)" },
+  { id: "bf_emma", name: "Emma (UK, female)" }, { id: "bf_isabella", name: "Isabella (UK, female)" },
+  { id: "bm_george", name: "George (UK, male)" }, { id: "bm_lewis", name: "Lewis (UK, male)" },
+]
 
 /** Credits are a display unit: 1 credit = US$0.01 of provider cost × MARKUP. */
 export const PRICING = { usdPerCredit: 0.01, markup: 1.5 } as const
@@ -52,6 +78,43 @@ export const PRICING = { usdPerCredit: 0.01, markup: 1.5 } as const
 const RUNWAY_I2V_ASPECTS: Aspect[] = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"]
 
 export const MODELS: ModelDef[] = [
+  // ───────── Self-hosted (our own GPU, open-weight models) ─────────
+  {
+    id: "flux2-klein-4b", provider: "engine", providerModel: "flux2-klein-4b", label: "FLUX.2 [klein] 4B",
+    kind: "image", modes: ["t2i", "i2i"], lifecycle: "stable", license: "Apache-2.0",
+    summary: "Fast photoreal images and edits from up to 4 reference photos, on our own GPU.",
+    bestFor: "Product photos, ad backgrounds, edits that keep your product",
+    aspects: { t2i: ["1:1", "3:2", "2:3", "16:9", "9:16"], i2i: ["1:1", "3:2", "2:3", "16:9", "9:16"] },
+    maxVariations: 4, maxRefImages: 4, seed: true,
+    notes: ["Runs on the Unsolvable engine. Text inside images is weaker than the big hosted models — add text in the layout step."],
+    priceBasis: "estimate", priceNote: "GPU time: about 3–8 seconds per image on an RTX 4090",
+  },
+  {
+    id: "wan22-ti2v-5b", provider: "engine", providerModel: "wan22-ti2v-5b", label: "Wan 2.2 TI2V-5B",
+    kind: "video", modes: ["t2v", "i2v"], lifecycle: "stable", license: "Apache-2.0",
+    summary: "720p, 24 fps video from a prompt or a product photo, on our own GPU.",
+    bestFor: "Product motion shots and b-roll you own outright",
+    aspects: { t2v: ["16:9", "9:16"], i2v: ["16:9", "9:16"] }, durations: [5], seed: true, negativePrompt: true, audio: "none",
+    notes: ["Takes several minutes per clip (about 9 on an RTX 4090). No sound: add a voiceover and assemble the ad."],
+    priceBasis: "estimate", priceNote: "GPU time: about 9 minutes per 5-second clip on an RTX 4090",
+  },
+  {
+    id: "kokoro-82m", provider: "engine", providerModel: "kokoro-82m", label: "Kokoro-82M",
+    kind: "audio", modes: ["tts"], lifecycle: "stable", license: "Apache-2.0",
+    summary: "Clear English voiceovers from 12 preset voices, on our own server.",
+    bestFor: "Ad voiceovers and narration",
+    notes: ["Preset voices only (no cloning). Best in English. Up to 5,000 characters."],
+    priceBasis: "estimate", priceNote: "Compute time: a few seconds per voiceover",
+  },
+  {
+    id: "engine-compose", provider: "engine", providerModel: "compose", label: "Ad assembler",
+    kind: "video", modes: ["compose"], lifecycle: "stable", license: "FFmpeg (software, not an AI model)",
+    summary: "Joins your shots, lays the voiceover under them and burns in captions as one MP4.",
+    bestFor: "Exporting a finished video ad with sound",
+    aspects: { compose: ["9:16", "16:9", "1:1"] },
+    priceBasis: "estimate", priceNote: "Compute time: seconds",
+  },
+
   // ───────── Video ─────────
   {
     id: "runway-gen45", provider: "runway", providerModel: "gen4.5", label: "Runway Gen-4.5",
@@ -171,7 +234,7 @@ export const MODELS: ModelDef[] = [
 ]
 
 export const MAX_CHARS: Record<string, number> = {
-  "eleven-v4": 10000, "eleven-multilingual-v2": 10000, "eleven-flash-v25": 40000,
+  "kokoro-82m": 5000, "eleven-v4": 10000, "eleven-multilingual-v2": 10000, "eleven-flash-v25": 40000,
 }
 
 export function getModel(id: string): ModelDef | undefined {
@@ -184,8 +247,10 @@ export function modelsFor(kind: Kind, mode?: Mode): ModelDef[] {
 
 export const MODE_LABEL: Record<Mode, string> = {
   t2i: "Text to image", i2i: "Edit with references", t2v: "Text to video",
-  i2v: "Image to video", v2v: "Edit a video", tts: "Text to speech",
+  i2v: "Image to video", v2v: "Edit a video", tts: "Text to speech", compose: "Assemble an ad",
 }
+
+export interface Caption { start: number; end: number; text: string }
 
 // ───────── Requests ─────────
 
@@ -204,6 +269,9 @@ export interface GenerationParams {
   voiceId?: string
   stability?: number
   speed?: number
+  /** compose only */
+  captions?: Caption[]
+  trimToVoice?: boolean
 }
 
 export interface GenerationRequest {
@@ -214,6 +282,9 @@ export interface GenerationRequest {
   /** Asset ids from /api/upload. First image is the start frame for i2v. */
   imageRefs?: string[]
   videoRef?: string
+  /** compose only: finished shots in order, and an optional voiceover. */
+  videoRefs?: string[]
+  audioRef?: string
   /** Optional project/campaign grouping */
   project?: string
 }
@@ -236,7 +307,7 @@ export function validateRequest(req: GenerationRequest): ValidationResult {
   const p: GenerationParams = {}
   const prompt = (req.prompt ?? "").trim()
   const maxPrompt = m.kind === "audio" ? (MAX_CHARS[m.id] ?? 5000) : 4000
-  if (!prompt && req.mode !== "i2v") errors.push(m.kind === "audio" ? "Write the script to speak." : "Describe what you want to make.")
+  if (!prompt && req.mode !== "i2v" && req.mode !== "compose") errors.push(m.kind === "audio" ? "Write the script to speak." : "Describe what you want to make.")
   if (prompt.length > maxPrompt) errors.push(`Keep it under ${maxPrompt.toLocaleString("en")} characters (you have ${prompt.length.toLocaleString("en")}).`)
 
   const refs = req.imageRefs ?? []
@@ -295,8 +366,21 @@ export function validateRequest(req: GenerationRequest): ValidationResult {
     else if (s > 30) errors.push("Keep the clip to 30 seconds or less.")
     else p.sourceSeconds = Math.round(s * 10) / 10
   }
+  if (req.mode === "compose") {
+    const shots = req.videoRefs ?? []
+    if (!shots.length) errors.push("Add at least one finished shot.")
+    if (shots.length > 12) errors.push("Use 12 shots or fewer.")
+    const caps = (req.params.captions ?? []).slice(0, 30)
+    p.captions = caps
+      .map((c) => ({ start: Number(c.start), end: Number(c.end), text: String(c.text ?? "").slice(0, 140) }))
+      .filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start && c.start >= 0 && c.text.trim())
+    if (req.params.trimToVoice) p.trimToVoice = true
+  }
   if (m.kind === "audio") {
-    if (!req.params.voiceId || !/^[A-Za-z0-9]{8,40}$/.test(req.params.voiceId)) errors.push("Pick a voice.")
+    const valid = m.provider === "engine"
+      ? KOKORO_VOICES.some((v) => v.id === req.params.voiceId)
+      : !!req.params.voiceId && /^[A-Za-z0-9]{8,40}$/.test(req.params.voiceId)
+    if (!valid) errors.push("Pick a voice.")
     else p.voiceId = req.params.voiceId
     p.stability = clamp(req.params.stability ?? 0.5, 0, 1)
     p.speed = clamp(req.params.speed ?? 1, 0.7, 1.2)
@@ -327,7 +411,15 @@ export function estimateCost(modelId: string, mode: Mode, params: GenerationPara
   let usd = 0
   let breakdown = ""
   const sec = params.duration ?? m.durations?.[0] ?? 0
+  const gpu = (seconds: number) => (seconds * ENGINE_GPU_USD_PER_HOUR) / 3600
   switch (m.id) {
+    case "flux2-klein-4b": {
+      const n = params.variations ?? 1
+      usd = gpu(8 * n); breakdown = `~${8 * n}s GPU time × $${ENGINE_GPU_USD_PER_HOUR}/h`; break
+    }
+    case "wan22-ti2v-5b": usd = gpu(560); breakdown = `~9 min GPU time × $${ENGINE_GPU_USD_PER_HOUR}/h`; break
+    case "kokoro-82m": usd = gpu(5 + promptChars / 50); breakdown = "a few seconds of compute"; break
+    case "engine-compose": usd = gpu(30); breakdown = "under a minute of compute"; break
     case "runway-gen45": usd = 0.12 * sec; breakdown = `${sec}s × $0.12`; break
     case "runway-gen4-turbo": usd = 0.05 * sec; breakdown = `${sec}s × $0.05`; break
     case "runway-aleph2": {
@@ -394,8 +486,22 @@ export interface JobView {
   error?: string
   outputs: JobOutput[]
   cost: CostEstimate
+  /** Self-hosted jobs: which model made this, on what hardware, and what the automatic checks found. */
+  provenance?: Provenance
   project?: string
   createdAt: string
   updatedAt: string
   completedAt?: string
+}
+
+export interface Provenance {
+  engine: "self-hosted"
+  model: string
+  version?: string
+  license?: string
+  seconds?: number
+  gpu?: string | null
+  peakVramGb?: number | null
+  gpuCostUsd?: number
+  quality?: { passed: boolean; failed: string[] }
 }

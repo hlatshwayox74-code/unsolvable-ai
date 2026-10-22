@@ -19,6 +19,8 @@ export default async (req: Request, context: Context) => {
     }
     body.params = body.params && typeof body.params === "object" ? body.params : {}
     body.imageRefs = Array.isArray(body.imageRefs) ? body.imageRefs.filter((r) => typeof r === "string").slice(0, 8) : []
+    body.videoRefs = Array.isArray(body.videoRefs) ? body.videoRefs.filter((r) => typeof r === "string").slice(0, 12) : []
+    body.audioRef = typeof body.audioRef === "string" ? body.audioRef : undefined
     const origin = new URL(req.url).origin || context.site?.url || ""
     const job = await createJob(actor, body, origin)
     return json({ job: toView(job) }, 201)

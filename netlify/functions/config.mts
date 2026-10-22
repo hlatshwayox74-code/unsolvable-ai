@@ -3,7 +3,8 @@ import { getUser } from "@netlify/identity"
 import { creditsEnabled, generationRoles, toActor } from "../lib/auth.ts"
 import { getBalance } from "../lib/credits.ts"
 import { directorConfigured } from "../lib/director.ts"
-import { providerStatus } from "../lib/providers/index.ts"
+import { engineHealth } from "../lib/providers/engine.ts"
+import { externalAllowed, providerStatus } from "../lib/providers/index.ts"
 import { env, handleError, json } from "../lib/util.ts"
 
 /** Public status: which providers are configured and what the signed-in user can do. Never returns secrets. */
@@ -19,6 +20,8 @@ export default async () => {
     }
     return json({
       providers: providerStatus(),
+      externalProviders: externalAllowed(),
+      engine: await engineHealth(),
       director: directorConfigured(),
       storageReady: !!secret && secret.length >= 32,
       credits: { enabled: creditsEnabled(), balance },

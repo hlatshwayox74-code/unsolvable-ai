@@ -12,8 +12,8 @@ export default function Models() {
     <div className="mx-auto max-w-[1320px] px-5 py-16 md:px-8">
       <h1 className="display text-7xl md:text-8xl">Models</h1>
       <p className="mt-4 max-w-2xl text-mist">
-        Every model here is called through its maker's official API. Details were checked against each provider's documentation on 22 October 2026.
-        "Preview" means the provider hasn't marked it generally available yet.
+        Self-hosted models run on our own GPU with open-weight models — no third party sees your prompts or charges per generation.
+        Third-party models are switched off unless the workspace owner turns them on; their details were checked against each provider's documentation on 22 October 2026.
       </p>
       {GROUPS.map((g) => (
         <section key={g.kind} className="mt-16">
@@ -26,7 +26,10 @@ export default function Models() {
               <article key={m.id} className="grid gap-4 py-6 md:grid-cols-[260px_minmax(0,1fr)_280px]">
                 <div>
                   <h3 className="text-lg font-semibold">{m.label}</h3>
-                  <p className="text-[13px] text-smoke">via {PROVIDERS[m.provider].label}{m.lifecycle === "preview" ? " · Preview" : ""}</p>
+                  <p className="text-[13px] text-smoke">
+                    {PROVIDERS[m.provider].external ? `Third-party: ${PROVIDERS[m.provider].label} · off by default` : `Self-hosted · ${m.license}`}
+                    {m.lifecycle === "preview" ? " · Preview" : ""}
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <p className="text-mist">{m.summary}</p>

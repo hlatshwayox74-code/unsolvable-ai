@@ -14,7 +14,7 @@ interface Analysis {
 }
 interface Concept { name: string; funnel: "top" | "middle" | "bottom"; angle: string; hook: string; headline: string; body: string; cta: string; imagePrompt: string; videoPrompt: string }
 interface Shot { title: string; seconds: number; prompt: string; camera: string; voiceover: string; caption: string; jobId?: string }
-interface Storyboard { title: string; shots: Shot[]; voiceoverScript: string; voJobId?: string; voiceId?: string }
+interface Storyboard { title: string; shots: Shot[]; voiceoverScript: string; voJobId?: string; voiceId?: string; exportJobId?: string }
 
 interface Brief {
   brand: string; product: string; audience: string; market: string; offer: string
@@ -52,6 +52,11 @@ function newCampaign(): Campaign {
 }
 
 function storageKey(uid?: string) { return `unsolvable.ad.v1.${uid ?? "anon"}` }
+
+// Self-hosted models first; third-party ones are only used when switched on and connected.
+const IMAGE_MODELS = ["flux2-klein-4b", "gpt-image-2", "runway-gen4-image"]
+const SHOT_MODELS = ["wan22-ti2v-5b", "veo-31-fast", "runway-gen45", "veo-31-lite"]
+const VOICE_MODELS = ["kokoro-82m", "eleven-v4"]
 
 /** First configured model from a preference list. */
 function pick(config: AppConfig | null, ids: string[]): string {
@@ -121,7 +126,7 @@ export default function AdStudio() {
     : " Keep the product exactly as in the reference photo: same shape, colours, proportions and printed text."
 
   async function makeImage(cpt: Concept, aspect: "1:1" | "2:3" | "9:16" | "16:9") {
-    const modelId = pick(config, ["gpt-image-2", "runway-gen4-image"])
+    const modelId = pick(config, IMAGE_MODELS)
     const m = getModel(modelId)!
     const refs = c.photos.slice(0, m.maxRefImages ?? 1).map((p) => p.assetId)
     const aspectFor = m.aspects?.i2i?.includes(aspect) ? aspect : "1:1"
@@ -145,7 +150,8 @@ export default function AdStudio() {
   }
 
   const videoAspect = /tiktok|reels|stories|shorts/i.test(c.brief.platform) ? "9:16" : "16:9"
-  const shotModel = pick(config, ["veo-31-fast", "runway-gen45", "veo-31-lite"])
+  const shotModel = pick(config, SHOT_MODELS)
+  const voiceModel = pick(config, VOICE_MODELS)
 
   async function makeShot(i: number, fromPhoto: boolean) {
     const sb = c.storyboard
@@ -182,7 +188,7 @@ export default function AdStudio() {
           hint="Clear, well-lit photos of the real product. These are sent to the models as references." />
         <UploadSlot label="Product cut-out (optional)" accept="image" assets={c.cutout} max={1} onChange={(cutout) => update({ cutout })} disabled={!user}
           hint="A PNG with a transparent background. In the layout step it can be placed over the AI scene untouched, so the product is pixel-exact." />
-        <button className="btn btn-signal" disabled={!c.photos.length || !!busy || !config?.director}
+        <button className="btn btn-signal" disabled={!c.photos.length || !!busy || !config?.director || config.director === "rules"}
           onClick={() => run("analyse", async () => {
             const a = await director<Analysis>("analyse-product", c.brief.product, { imageRefs: c.photos.map((p) => p.assetId) })
             update({ analysis: a })
@@ -190,7 +196,7 @@ export default function AdStudio() {
           })}>
           {busy === "analyse" ? <Spinner /> : <Icon name="sparkle" />} Analyse product
         </button>
-        {!config?.director && <p className="hint">Analysis needs a Gemini or OpenAI key. You can also fill in the details yourself.</p>}
+        {(!config?.director || config.director === "rules") && <p className="hint">Photo analysis needs a vision model, which isn't connected. Fill in the details on the right yourself — they're added to every prompt.</p>}
       </div>
       <div className="space-y-3">
         <h3 className="font-semibold">What the models must keep</h3>
@@ -284,7 +290,7 @@ export default function AdStudio() {
             <div className="flex flex-wrap gap-2">
               {(["1:1", "2:3", "9:16", "16:9"] as const).map((a) => (
                 <button key={a} className="btn btn-ghost" disabled={!!busy || !canGenerate || !c.photos.length} onClick={() => makeImage(concept, a)}>
-                  {busy === "image" ? <Spinner /> : <Icon name="image" />} Make {a} · {costLabel(estimateCost(pick(config, ["gpt-image-2", "runway-gen4-image"]), "i2i", { aspect: a, quality: "high", variations: 1, resolution: "1080p" }))}
+                  {busy === "image" ? <Spinner /> : <Icon name="image" />} Make {a} · {costLabel(estimateCost(pick(config, IMAGE_MODELS), "i2i", { aspect: a, quality: "high", variations: 1, resolution: "1080p" }))}
                 </button>
               ))}
             </div>
@@ -333,8 +339,11 @@ export default function AdStudio() {
                     )
                   })}
                 </ol>
-                <Voiceover storyboard={c.storyboard} onChange={(sb) => update({ storyboard: sb })} project={c.id} jobs={projectJobs} canGenerate={canGenerate && !!config?.providers.elevenlabs} />
-                <AdPreview storyboard={c.storyboard} jobs={projectJobs} aspect={videoAspect} />
+                <Voiceover storyboard={c.storyboard} onChange={(sb) => update({ storyboard: sb })} project={c.id} jobs={projectJobs}
+                  modelId={voiceModel} canGenerate={canGenerate && !!config?.providers[getModel(voiceModel)!.provider]} />
+                <AdPreview storyboard={c.storyboard} jobs={projectJobs} aspect={videoAspect} project={c.id}
+                  onExport={(id) => update({ storyboard: { ...c.storyboard!, exportJobId: id } })}
+                  canExport={canGenerate && !!config?.providers.engine} />
               </>
             )}
           </section>
@@ -375,7 +384,7 @@ export default function AdStudio() {
           setC(newCampaign()); setStep(0); setConfirmNew(false)
         }}>{confirmNew ? "Click again to clear this plan" : "New campaign"}</button>
       </div>
-      <SetupGate config={config} models={[getModel("gpt-image-2")!, getModel("veo-31-fast")!, getModel("runway-gen45")!]} configError={configError} />
+      <SetupGate config={config} models={[...IMAGE_MODELS, ...SHOT_MODELS].map((id) => getModel(id)!)} configError={configError} />
       <ol className="flex flex-wrap gap-1.5" aria-label="Steps">
         {STEPS.map((s, i) => (
           <li key={s}>
@@ -400,18 +409,19 @@ function blankAnalysis(): Analysis {
   return { productName: null, category: "", shape: "", colours: [], materials: [], visibleText: [], distinctiveDetails: [], preservationClause: "" }
 }
 
-function Voiceover({ storyboard, onChange, project, jobs, canGenerate }: { storyboard: Storyboard; onChange(s: Storyboard): void; project: string; jobs: JobView[]; canGenerate: boolean }) {
+function Voiceover({ storyboard, onChange, project, jobs, canGenerate, modelId }: { storyboard: Storyboard; onChange(s: Storyboard): void; project: string; jobs: JobView[]; canGenerate: boolean; modelId: string }) {
+  const provider = getModel(modelId)?.provider ?? "engine"
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => {
     if (!canGenerate) return
-    api<{ voices: { id: string; name: string }[] }>("/api/voices").then((r) => {
+    api<{ voices: { id: string; name: string }[] }>(`/api/voices?provider=${provider}`).then((r) => {
       setVoices(r.voices)
-      if (!storyboard.voiceId && r.voices[0]) onChange({ ...storyboard, voiceId: r.voices[0].id })
+      if (r.voices[0] && !r.voices.some((v) => v.id === storyboard.voiceId)) onChange({ ...storyboard, voiceId: r.voices[0].id })
     }).catch((e) => setErr((e as Error).message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canGenerate])
+  }, [canGenerate, provider])
   const job = jobs.find((j) => j.id === storyboard.voJobId)
   return (
     <div className="grid gap-4 rounded-[var(--radius-panel)] border border-line p-4 md:grid-cols-[minmax(0,1fr)_320px]">
@@ -426,7 +436,7 @@ function Voiceover({ storyboard, onChange, project, jobs, canGenerate }: { story
             onClick={async () => {
               setBusy(true); setErr(null)
               try {
-                const j = await generate({ modelId: "eleven-v4", mode: "tts", prompt: storyboard.voiceoverScript, params: { voiceId: storyboard.voiceId }, project })
+                const j = await generate({ modelId, mode: "tts", prompt: storyboard.voiceoverScript, params: { voiceId: storyboard.voiceId }, project })
                 upsertJob(j)
                 onChange({ ...storyboard, voJobId: j.id })
               } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -434,7 +444,8 @@ function Voiceover({ storyboard, onChange, project, jobs, canGenerate }: { story
             {busy ? <Spinner /> : <Icon name="voice" />} {storyboard.voJobId ? "Redo" : "Make"} voiceover
           </button>
         </div>
-        {!canGenerate && <p className="hint mt-1.5">Voiceover needs ELEVENLABS_API_KEY.</p>}
+        {!canGenerate && <p className="hint mt-1.5">Voiceover needs the self-hosted engine connected.</p>}
+        {canGenerate && <p className="hint mt-1.5">Made with {getModel(modelId)?.label}.</p>}
         {err && <p className="mt-1.5 text-[13px] text-[#ffb3ad]">{err}</p>}
       </div>
       <div>{job ? <JobCard job={job} /> : null}</div>
@@ -443,10 +454,40 @@ function Voiceover({ storyboard, onChange, project, jobs, canGenerate }: { story
 }
 
 /** Plays finished shots in order with the voiceover and captions. A preview, not a rendered file. */
-function AdPreview({ storyboard, jobs, aspect }: { storyboard: Storyboard; jobs: JobView[]; aspect: string }) {
-  const shots = storyboard.shots.map((s) => ({ s, url: jobs.find((j) => j.id === s.jobId && j.status === "completed")?.outputs[0]?.url }))
+function AdPreview({ storyboard, jobs, aspect, project, onExport, canExport }: {
+  storyboard: Storyboard; jobs: JobView[]; aspect: string; project: string; onExport(id: string): void; canExport: boolean
+}) {
+  const shots = storyboard.shots.map((s) => {
+    const job = jobs.find((j) => j.id === s.jobId && j.status === "completed")
+    return { s, url: job?.outputs[0]?.url, assetId: job?.outputs[0]?.assetId, seconds: job?.params.duration ?? s.seconds }
+  })
   const ready = shots.filter((x) => x.url)
-  const voUrl = jobs.find((j) => j.id === storyboard.voJobId && j.status === "completed")?.outputs[0]?.url
+  const voJob = jobs.find((j) => j.id === storyboard.voJobId && j.status === "completed")
+  const voUrl = voJob?.outputs[0]?.url
+  const exportJob = jobs.find((j) => j.id === storyboard.exportJobId)
+  const [exporting, setExporting] = useState(false)
+  const [exportErr, setExportErr] = useState<string | null>(null)
+
+  /** One MP4: every finished shot in order, the voiceover underneath, captions burned in. */
+  async function exportMp4() {
+    setExporting(true); setExportErr(null)
+    try {
+      let t = 0
+      const captions = ready.map(({ s, seconds }) => {
+        const start = t
+        t += seconds
+        return { start: start + 0.2, end: t - 0.1, text: s.caption || s.voiceover }
+      }).filter((c) => c.text)
+      const j = await generate({
+        modelId: "engine-compose", mode: "compose", prompt: storyboard.title || "Ad export", project,
+        params: { aspect: aspect as "9:16" | "16:9", captions },
+        videoRefs: ready.map((x) => x.assetId!),
+        audioRef: voJob?.outputs[0]?.assetId,
+      })
+      upsertJob(j)
+      onExport(j.id)
+    } catch (e) { setExportErr((e as Error).message) } finally { setExporting(false) }
+  }
   const [i, setI] = useState(0)
   const [playing, setPlaying] = useState(false)
   const video = useRef<HTMLVideoElement>(null)
@@ -475,6 +516,10 @@ function AdPreview({ storyboard, jobs, aspect }: { storyboard: Storyboard; jobs:
         <div className="flex gap-2">
           <button className="btn btn-signal py-1.5 text-sm" disabled={!ready.length} onClick={start}><Icon name="play" /> Play {ready.length}/{shots.length} shots</button>
           <button className="btn btn-ghost py-1.5 text-sm" onClick={srt}><Icon name="download" /> Captions (.srt)</button>
+          <button className="btn btn-signal py-1.5 text-sm" disabled={!ready.length || !canExport || exporting} onClick={exportMp4}
+            title="Joins the finished shots, adds the voiceover and burns in the captions, on our own engine">
+            {exporting ? <Spinner /> : <Icon name="video" />} Export MP4 with sound
+          </button>
         </div>
       </div>
       {ready.length > 0 && (
@@ -487,7 +532,9 @@ function AdPreview({ storyboard, jobs, aspect }: { storyboard: Storyboard; jobs:
         </div>
       )}
       {voUrl && <audio ref={audio} src={voUrl} preload="auto" />}
-      <p className="hint">This plays your finished shots in order with the voiceover so you can judge pacing. Download each shot and the voiceover from the cards above to edit them together; a one-click MP4 export is on the roadmap.</p>
+      <p className="hint">Play checks the pacing in your browser. Export MP4 renders one file on our engine: {ready.length} shot{ready.length === 1 ? "" : "s"}{voUrl ? ", the voiceover" : " (no voiceover yet)"} and the captions.</p>
+      {exportErr && <p className="text-[13px] text-[#ffb3ad]">{exportErr}</p>}
+      {exportJob && <div className="max-w-sm"><JobCard job={exportJob} /></div>}
     </div>
   )
 }

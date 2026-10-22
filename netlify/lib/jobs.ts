@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
-import { estimateCost, getModel, TERMINAL, validateRequest, type GenerationRequest, type JobOutput } from "../../shared/catalog.ts"
+import { estimateCost, getModel, PROVIDERS, TERMINAL, validateRequest, type GenerationRequest, type JobOutput } from "../../shared/catalog.ts"
 import type { Actor } from "./auth.ts"
 import { refundCredits, reserveCredits } from "./credits.ts"
-import { adapterFor } from "./providers/index.ts"
+import { adapterFor, externalAllowed } from "./providers/index.ts"
 import type { OutputSource, ResolvedInputs } from "./providers/types.ts"
 import { signMediaPath } from "./sign.ts"
 import { countActiveJobs, getMedia, loadJob, putMedia, saveJob, type JobRecord } from "./store.ts"
@@ -18,8 +18,13 @@ export async function createJob(actor: Actor, req: GenerationRequest, origin: st
   if (!v.ok) throw new HttpError(400, v.errors.join(" "), "invalid_request")
   const model = getModel(req.modelId)!
   const adapter = adapterFor(model.provider)
+  if (PROVIDERS[model.provider].external && !externalAllowed()) {
+    throw new HttpError(403, `${model.label} is a third-party AI service, and those are switched off. Use a self-hosted model instead.`, "external_disabled")
+  }
   if (!adapter.isConfigured()) {
-    throw new HttpError(503, `${model.label} needs a ${model.provider} API key. Add it in Netlify → Environment variables.`, "provider_not_configured")
+    throw new HttpError(503, model.provider === "engine"
+      ? "The self-hosted engine isn't connected yet. Add ENGINE_URL and ENGINE_TOKEN in Netlify (see docs/ENGINE.md)."
+      : `${model.label} needs a ${model.provider} API key. Add it in Netlify → Environment variables.`, "provider_not_configured")
   }
   if ((await countActiveJobs(actor.id)) >= MAX_ACTIVE_JOBS) {
     throw new HttpError(429, `You already have ${MAX_ACTIVE_JOBS} generations running. Wait for one to finish.`, "too_many_jobs")
@@ -36,6 +41,7 @@ export async function createJob(actor: Actor, req: GenerationRequest, origin: st
     params: v.params,
     imageRefs: req.imageRefs ?? [],
     videoRef: req.videoRef,
+    ...(req.mode === "compose" ? { videoRefs: (req.videoRefs ?? []).slice(0, 12), audioRef: req.audioRef } : {}),
     status: "queued",
     outputs: [],
     cost: estimateCost(model.id, req.mode, v.params, req.prompt.trim().length),
@@ -65,7 +71,7 @@ export async function createJob(actor: Actor, req: GenerationRequest, origin: st
   return job
 }
 
-export async function resolveInputs(owner: string, job: Pick<JobRecord, "imageRefs" | "videoRef">, origin: string): Promise<ResolvedInputs> {
+export async function resolveInputs(owner: string, job: Pick<JobRecord, "imageRefs" | "videoRef" | "videoRefs" | "audioRef">, origin: string): Promise<ResolvedInputs> {
   const images = []
   for (const id of job.imageRefs) {
     const m = await getMedia(owner, id)
@@ -78,7 +84,19 @@ export async function resolveInputs(owner: string, job: Pick<JobRecord, "imageRe
     if (!m || m.meta.kind !== "video") throw new HttpError(400, "The video to edit is missing. Upload it again.", "missing_asset")
     video = { assetId: job.videoRef, contentType: m.meta.contentType, signedUrl: origin + signMediaPath(owner, job.videoRef, 3600) }
   }
-  return { images, video }
+  const videos: NonNullable<ResolvedInputs["videos"]> = []
+  for (const id of job.videoRefs ?? []) {
+    const m = await getMedia(owner, id)
+    if (!m || m.meta.kind !== "video") throw new HttpError(400, "One of the shots is missing. Make it again.", "missing_asset")
+    videos.push({ assetId: id, contentType: m.meta.contentType, signedUrl: origin + signMediaPath(owner, id, 3600) })
+  }
+  let audio: ResolvedInputs["audio"]
+  if (job.audioRef) {
+    const m = await getMedia(owner, job.audioRef)
+    if (!m || m.meta.kind !== "audio") throw new HttpError(400, "The voiceover is missing. Make it again.", "missing_asset")
+    audio = { assetId: job.audioRef, contentType: m.meta.contentType, signedUrl: origin + signMediaPath(owner, job.audioRef, 3600) }
+  }
+  return { images, video, videos, audio }
 }
 
 export function internalToken(jobId: string): string {
@@ -128,7 +146,7 @@ export async function refreshJob(job: JobRecord): Promise<JobRecord> {
   const adapter = adapterFor(getModel(job.modelId)!.provider)
   if (!adapter.poll) return job
   job.lastPolledAt = Date.now()
-  let r
+  let r: Awaited<ReturnType<NonNullable<typeof adapter.poll>>>
   try {
     r = await adapter.poll(job)
   } catch (e) {
@@ -137,6 +155,7 @@ export async function refreshJob(job: JobRecord): Promise<JobRecord> {
     await failJob(job, e instanceof Error ? e.message : "Status check failed.")
     return job
   }
+  if (r.provenance) job.provenance = r.provenance
   if (r.status === "completed") {
     try {
       job.outputs = await storeOutputs(job, r.outputs ?? [])

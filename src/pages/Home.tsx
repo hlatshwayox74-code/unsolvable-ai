@@ -1,7 +1,7 @@
 import { animate, createTimeline, stagger } from "animejs"
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { estimateCost, MODELS } from "../../shared/catalog.ts"
+import { estimateCost, MODELS, PROVIDERS } from "../../shared/catalog.ts"
 import { XMark } from "../components/brand.tsx"
 import { Icon } from "../components/ui.tsx"
 import { usd } from "../lib/format.ts"
@@ -16,32 +16,32 @@ const TOOLS = [
   {
     id: "image", name: "Image", to: "/studio/image",
     in: "A prompt, plus up to four of your own photos as references",
-    out: "One to four images, up to 2048 px, PNG with transparency if you need it",
-    models: "GPT Image 2 · Runway Gen-4 Image",
-    from: estimateCost("gpt-image-2", "t2i", { aspect: "1:1", quality: "medium", variations: 1 }).usd,
+    out: "One to four images, up to 1536 px, rendered on our own GPU",
+    models: "FLUX.2 [klein] 4B (self-hosted, Apache 2.0)",
+    from: estimateCost("flux2-klein-4b", "t2i", { aspect: "1:1", variations: 1 }).usd,
     detail: "Product shots, campaign stills and edits that keep the details of what you upload.",
   },
   {
     id: "video", name: "Video", to: "/studio/video",
-    in: "A written shot, a start frame from your photos, or a clip to restyle",
-    out: "4–10 second clips up to 4K, with generated sound on Veo",
-    models: "Runway Gen-4.5 · Veo 3.1 · Aleph 2 · Seedance 2.0",
-    from: estimateCost("veo-31-lite", "t2v", { duration: 4, resolution: "720p" }).usd,
+    in: "A written shot, or a start frame from your photos",
+    out: "5-second 720p clips at 24 fps; add sound with a voiceover in Ad Studio",
+    models: "Wan 2.2 TI2V-5B (self-hosted, Apache 2.0)",
+    from: estimateCost("wan22-ti2v-5b", "t2v", { duration: 5 }).usd,
     detail: "Write the camera move and the light; animate a product photo without losing the product.",
   },
   {
     id: "voice", name: "Voice", to: "/studio/voice",
-    in: "A script and a voice from your ElevenLabs library",
-    out: "An MP3 voiceover in 90+ languages, with control over pace and delivery",
-    models: "ElevenLabs v4 · Multilingual v2 · Flash v2.5",
-    from: estimateCost("eleven-flash-v25", "tts", {}, 300).usd,
-    detail: "Natural reads for ads and explainers — use your own cloned voice with consent.",
+    in: "A script and one of 12 preset voices",
+    out: "A WAV voiceover in US or UK English, with pace control",
+    models: "Kokoro-82M (self-hosted, Apache 2.0)",
+    from: estimateCost("kokoro-82m", "tts", {}, 300).usd,
+    detail: "Clear reads for ads and explainers, made on our own server.",
   },
   {
     id: "ads", name: "Ad Studio", to: "/studio/ads",
     in: "Your product photo, brand, offer and audience",
-    out: "Three funnel-stage concepts, ad images in every placement size, a shot-by-shot video ad with voiceover",
-    models: "All of the above, plus a creative director",
+    out: "Three funnel-stage concepts, ad images in every placement size, and one finished MP4 with voiceover and captions",
+    models: "All of the above, plus the ad assembler",
     from: null,
     detail: "Headlines, prices and logos are laid out exactly as you typed them — never drawn by the AI.",
   },
@@ -89,7 +89,7 @@ export default function Home() {
     return () => { alive = false; clearTimeout(timer) }
   }, [touched])
 
-  const demoCost = estimateCost("runway-gen45", "t2v", { duration: 5, aspect: "16:9" })
+  const demoCost = estimateCost("wan22-ti2v-5b", "t2v", { duration: 5, aspect: "16:9" })
   const active = TOOLS.find((t) => t.id === tool)!
 
   function pulse(el: HTMLElement | null) {
@@ -113,7 +113,7 @@ export default function Home() {
               <span className="hero-line block">Get the film.</span>
             </h1>
             <p className="hero-line mt-6 max-w-md text-lg leading-relaxed text-mist">
-              Images, video with sound, voiceovers and ready-to-post ads from a sentence or a product photo — using Runway, Veo, GPT Image and ElevenLabs, with the price shown before you press generate.
+              Images, video with sound, voiceovers and ready-to-post ads from a sentence or a product photo — made on our own GPU with open models, with the cost shown before you press generate.
             </p>
             <div className="hero-line mt-8 flex flex-wrap gap-3">
               <Link to="/studio/ads" className="btn btn-signal px-5 py-3 text-base">Make an ad from a photo</Link>
@@ -136,12 +136,12 @@ export default function Home() {
               placeholder="A hoodie on a concrete plinth, hard noon light…"
             />
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[13px]">
-              <span className="chip" aria-pressed="true">Runway Gen-4.5</span>
+              <span className="chip" aria-pressed="true">Wan 2.2 · self-hosted</span>
               <span className="chip">16:9</span>
               <span className="chip">5s</span>
             </div>
             <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-4">
-              <span className="text-[13px] text-smoke">≈{usd(demoCost.usd)} provider cost</span>
+              <span className="text-[13px] text-smoke">≈{usd(demoCost.usd)} GPU time</span>
               <button type="submit" className="btn btn-signal" disabled={!prompt.trim()}>Open in studio <Icon name="arrow" /></button>
             </div>
           </form>
@@ -176,7 +176,7 @@ export default function Home() {
               <div><dt className="text-smoke">Goes in</dt><dd className="mt-1 text-[15px]">{active.in}</dd></div>
               <div><dt className="text-smoke">Comes out</dt><dd className="mt-1 text-[15px]">{active.out}</dd></div>
               <div><dt className="text-smoke">Models</dt><dd className="mt-1 text-[15px]">{active.models}</dd></div>
-              <div><dt className="text-smoke">From</dt><dd className="mt-1 text-[15px]">{active.from !== null ? `about ${usd(active.from)} per output in provider costs` : "the sum of the pieces you generate"}</dd></div>
+              <div><dt className="text-smoke">From</dt><dd className="mt-1 text-[15px]">{active.from !== null ? `about ${usd(active.from)} per output in GPU time` : "the sum of the pieces you generate"}</dd></div>
             </dl>
             <Link to={active.to} className="btn btn-signal mt-8 self-start">Open {active.name}</Link>
           </div>
@@ -205,17 +205,17 @@ export default function Home() {
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
             <h2 className="display text-6xl md:text-7xl">The price, before you press go.</h2>
-            <p className="mt-4 max-w-xl text-mist">These are the providers' own published rates. The studio shows the estimate for your exact settings on every Generate button.</p>
+            <p className="mt-4 max-w-xl text-mist">Our own engine costs GPU time, not per-generation fees. The studio shows the estimate for your exact settings on every Generate button.</p>
           </div>
           <Link to="/pricing" className="btn btn-ghost">How credits work</Link>
         </div>
         <div className="mt-10 overflow-x-auto rounded-[var(--radius-panel)] border border-line">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-coal text-[12.5px] text-smoke">
-              <tr><th className="px-5 py-3 font-semibold">Model</th><th className="px-5 py-3 font-semibold">Best for</th><th className="px-5 py-3 font-semibold">Provider rate</th></tr>
+              <tr><th className="px-5 py-3 font-semibold">Model</th><th className="px-5 py-3 font-semibold">Best for</th><th className="px-5 py-3 font-semibold">Cost basis</th></tr>
             </thead>
             <tbody>
-              {MODELS.filter((m) => m.kind !== "audio").map((m) => (
+              {MODELS.filter((m) => m.kind !== "audio" && !PROVIDERS[m.provider].external && !m.modes.includes("compose")).map((m) => (
                 <tr key={m.id} className="border-t border-line">
                   <td className="px-5 py-3.5 font-semibold">{m.label}{m.lifecycle === "preview" && <span className="ml-2 text-[11px] font-semibold text-smoke">Preview</span>}</td>
                   <td className="px-5 py-3.5 text-mist">{m.bestFor}</td>

@@ -1,5 +1,5 @@
 import { getStore } from "@netlify/blobs"
-import type { CostEstimate, GenerationParams, JobOutput, JobStatus, JobView, Kind, Mode } from "../../shared/catalog.ts"
+import type { CostEstimate, GenerationParams, JobOutput, JobStatus, JobView, Kind, Mode, Provenance } from "../../shared/catalog.ts"
 import { getModel } from "../../shared/catalog.ts"
 import { HttpError, ID_RE, nowIso } from "./util.ts"
 
@@ -16,12 +16,15 @@ export interface JobRecord {
   params: GenerationParams
   imageRefs: string[]
   videoRef?: string
+  videoRefs?: string[]
+  audioRef?: string
   status: JobStatus
   progress?: number
   error?: string
   outputs: JobOutput[]
   cost: CostEstimate
   creditsCharged: number
+  provenance?: Provenance
   project?: string
   createdAt: string
   updatedAt: string
@@ -113,6 +116,7 @@ export function toView(job: JobRecord): JobView {
     error: job.error,
     outputs: job.outputs,
     cost: job.cost,
+    provenance: job.provenance,
     project: job.project,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,

@@ -1,0 +1,18 @@
+# Unsolvable.ai creative engine. Install PyTorch with CUDA first (the Docker image already has it):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+diffusers>=0.41.0
+transformers>=4.57
+accelerate>=1.10
+sentencepiece
+ftfy
+safetensors
+huggingface_hub>=0.34
+kokoro>=0.9.4
+soundfile
+numpy
+pillow
+imageio[ffmpeg]
+imageio-ffmpeg
+fastapi>=0.115
+uvicorn[standard]
+pydantic>=2

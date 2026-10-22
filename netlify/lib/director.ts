@@ -1,5 +1,7 @@
 import { getModel } from "../../shared/catalog.ts"
+import { rulesDirector } from "./director-rules.ts"
 import { GEMINI_BASE } from "./providers/google.ts"
+import { externalAllowed } from "./providers/index.ts"
 import { bytesToBase64, env, HttpError, ProviderError, providerFetch, readProviderError } from "./util.ts"
 
 /**
@@ -45,15 +47,21 @@ function userMessage(input: DirectorInput): string {
   return `${task}\n${ctx}Return JSON shaped like: ${SHAPES[input.task]}\n\nUser input:\n${input.text.slice(0, 6000)}`
 }
 
-export function directorConfigured(): "gemini" | "openai" | null {
-  if (env("GEMINI_API_KEY")) return "gemini"
-  if (env("OPENAI_API_KEY")) return "openai"
-  return null
+/** Which director runs. Without third-party AI it falls back to the rules-based one (no photo analysis). */
+export function directorConfigured(): "gemini" | "openai" | "rules" {
+  if (externalAllowed() && env("GEMINI_API_KEY")) return "gemini"
+  if (externalAllowed() && env("OPENAI_API_KEY")) return "openai"
+  return "rules"
 }
 
 export async function runDirector(input: DirectorInput): Promise<Record<string, unknown>> {
   const which = directorConfigured()
-  if (!which) throw new HttpError(503, "The creative director needs a GEMINI_API_KEY or OPENAI_API_KEY.", "provider_not_configured")
+  if (which === "rules") {
+    if (input.task === "analyse-product") {
+      throw new HttpError(503, "Photo analysis needs a vision model, which isn't connected. Fill in the product details yourself.", "provider_not_configured")
+    }
+    return rulesDirector(input.task, input.text, input.modelId)
+  }
   const raw = which === "gemini" ? await viaGemini(input) : await viaOpenAI(input)
   try {
     const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, ""))

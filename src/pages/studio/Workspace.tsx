@@ -4,7 +4,7 @@ import {
   estimateCost, getModel, MODE_LABEL, modelsFor, validateRequest,
   type Aspect, type GenerationParams, type JobView, type Mode,
 } from "../../../shared/catalog.ts"
-import { director, generate, upsertJob, useConfig, useJobs } from "../../lib/api.ts"
+import { director, generate, upsertJob, useConfig, useJobs, visibleModels } from "../../lib/api.ts"
 import { useAuth } from "../../lib/auth.tsx"
 import { costLabel } from "../../lib/format.ts"
 import { CostLine, JobCard, ModelPicker, SetupGate, UploadSlot, type Asset } from "../../components/studio-parts.tsx"
@@ -37,7 +37,8 @@ export default function Workspace({ kind }: { kind: Kind }) {
     const m = search.get("mode") as Mode | null
     return m && MODES[kind].includes(m) ? m : MODES[kind][0]
   })
-  const models = useMemo(() => modelsFor(kind, mode), [kind, mode])
+  const models = useMemo(() => visibleModels(config, modelsFor(kind, mode)), [kind, mode, config])
+  const modes = MODES[kind].filter((m) => visibleModels(config, modelsFor(kind, m)).length > 0)
   const [modelId, setModelId] = useState(models[0]?.id ?? "")
   const model = getModel(modelId) ?? models[0]
   const [prompt, setPrompt] = useState(search.get("prompt") ?? "")
@@ -58,6 +59,13 @@ export default function Workspace({ kind }: { kind: Kind }) {
     if (search.toString()) setSearch({}, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Keep the mode valid once we know which providers are allowed.
+  const modesKey = modes.join(",")
+  useEffect(() => {
+    if (modes.length && !modes.includes(mode)) setMode(modes[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modesKey, mode])
 
   // Keep the selected model valid for the mode.
   useEffect(() => {
@@ -136,7 +144,7 @@ export default function Workspace({ kind }: { kind: Kind }) {
           label="Mode"
           value={mode}
           onChange={(m) => { setMode(m); setError(null) }}
-          options={MODES[kind].map((m) => ({ value: m, label: MODE_LABEL[m] }))}
+          options={modes.map((m) => ({ value: m, label: MODE_LABEL[m] }))}
         />
 
         {(mode === "i2i" || mode === "i2v" || (maxImages > 0 && mode !== "v2v")) && (
@@ -166,7 +174,7 @@ export default function Workspace({ kind }: { kind: Kind }) {
           <div className="mb-1.5 flex items-end justify-between gap-2">
             <label htmlFor="prompt" className="label mb-0">{mode === "v2v" ? "What should change" : mode === "i2v" ? "Motion and camera (optional)" : "Prompt"}</label>
             <button type="button" className="btn btn-quiet py-1 text-[13px]" onClick={improve} disabled={directing || !user || !config?.director}
-              title={config?.director ? "The creative director rewrites your prompt; you choose whether to use it" : "Needs a Gemini or OpenAI key"}>
+              title={config?.director === "rules" ? "Adds camera, lighting and quality direction to your prompt (rules-based, no AI); you choose whether to use it" : "The creative director rewrites your prompt; you choose whether to use it"}>
               {directing ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="sparkle" className="h-3.5 w-3.5" />} Improve
             </button>
           </div>

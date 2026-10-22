@@ -91,3 +91,25 @@ describe("estimateCost uses the published rates", () => {
     }
   })
 })
+
+describe("self-hosted models", () => {
+  it("accept Kokoro preset voices and reject unknown ones", async () => {
+    const { validateRequest } = await import("../shared/catalog.ts")
+    expect(validateRequest({ modelId: "kokoro-82m", mode: "tts", prompt: "hi", params: { voiceId: "af_heart" } }).ok).toBe(true)
+    expect(validateRequest({ modelId: "kokoro-82m", mode: "tts", prompt: "hi", params: { voiceId: "21m00Tcm4TlvDq8ikWAM" } }).ok).toBe(false)
+  })
+  it("need at least one shot to assemble, and drop broken captions", async () => {
+    const { validateRequest } = await import("../shared/catalog.ts")
+    expect(validateRequest({ modelId: "engine-compose", mode: "compose", prompt: "", params: {} }).ok).toBe(false)
+    const v = validateRequest({ modelId: "engine-compose", mode: "compose", prompt: "", videoRefs: ["ast_aaaaaaaaaaaaaaaaaaaaaaaa"],
+      params: { aspect: "9:16", captions: [{ start: 0, end: 1, text: "ok" }, { start: 2, end: 1, text: "backwards" }, { start: 0, end: 1, text: " " }] } })
+    expect(v.ok).toBe(true)
+    expect(v.params.captions).toEqual([{ start: 0, end: 1, text: "ok" }])
+  })
+  it("price GPU time, not provider fees", async () => {
+    const { estimateCost } = await import("../shared/catalog.ts")
+    const c = estimateCost("wan22-ti2v-5b", "t2v", { duration: 5 })
+    expect(c.usd).toBeCloseTo(0.107, 3)
+    expect(c.breakdown).toMatch(/GPU time/)
+  })
+})
