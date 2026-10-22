@@ -68,6 +68,7 @@ export default function AdStudio() {
     return newCampaign()
   })
   const [busy, setBusy] = useState<string | null>(null)
+  const [confirmNew, setConfirmNew] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const loadedFor = useRef<string | null>(null)
 
@@ -369,7 +370,10 @@ export default function AdStudio() {
           <h1 className="display text-5xl">Ad Studio</h1>
           <p className="mt-1 max-w-2xl text-sm text-smoke">From a product photo to finished ads: the product is analysed, concepts are written for each funnel stage, scenes are generated around your real photo, and text is laid out exactly.</p>
         </div>
-        <button className="btn btn-ghost" onClick={() => { if (confirm("Start a new campaign? The current one stays in your library, but its plan here will be cleared.")) { setC(newCampaign()); setStep(0) } }}>New campaign</button>
+        <button className="btn btn-ghost" onClick={() => {
+          if (!confirmNew) { setConfirmNew(true); setTimeout(() => setConfirmNew(false), 4000); return }
+          setC(newCampaign()); setStep(0); setConfirmNew(false)
+        }}>{confirmNew ? "Click again to clear this plan" : "New campaign"}</button>
       </div>
       <SetupGate config={config} models={[getModel("gpt-image-2")!, getModel("veo-31-fast")!, getModel("runway-gen45")!]} configError={configError} />
       <ol className="flex flex-wrap gap-1.5" aria-label="Steps">

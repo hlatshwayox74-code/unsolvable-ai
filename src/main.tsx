@@ -1,12 +1,25 @@
 import { lazy, StrictMode, Suspense } from "react"
 import { createRoot } from "react-dom/client"
-import { BrowserRouter, Link, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom"
+import { BrowserRouter, Link, MemoryRouter, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom"
 import { useEffect } from "react"
 import { SiteFooter, SiteHeader } from "./components/site.tsx"
 import { Spinner } from "./components/ui.tsx"
 import { AuthProvider, useAuth } from "./lib/auth.tsx"
 import Home from "./pages/Home.tsx"
 import "./styles.css"
+import { installPreviewApi, IS_PREVIEW } from "./preview.ts"
+
+if (IS_PREVIEW) installPreviewApi()
+const Router = IS_PREVIEW ? MemoryRouter : BrowserRouter
+
+function PreviewBanner() {
+  if (!IS_PREVIEW) return null
+  return (
+    <div role="note" className="bg-signal px-4 py-2 text-center text-[13px] font-semibold text-ink">
+      Design preview. Sign-in and generation are switched off here; they work on the deployed site.
+    </div>
+  )
+}
 
 const Models = lazy(() => import("./pages/Models.tsx"))
 const Pricing = lazy(() => import("./pages/Pricing.tsx"))
@@ -90,10 +103,11 @@ function App() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
+    <Router>
+      <PreviewBanner />
       <AuthProvider>
         <App />
       </AuthProvider>
-    </BrowserRouter>
+    </Router>
   </StrictMode>,
 )
