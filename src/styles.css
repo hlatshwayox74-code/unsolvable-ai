@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #000000;
+  --color-coal: #141416;
+  --color-coal-2: #1c1c1f;
+  --color-coal-3: #26262a;
+  --color-line: #2e2e33;
+  --color-smoke: #9a9aa3;
+  --color-mist: #c9c9cf;
+  --color-paper: #ffffff;
+  --color-signal: #ffd100;
+  --color-signal-soft: #fff1a8;
+  --color-signal-ink: #1a1500;
+  --color-alert: #ff5a4e;
+  --color-go: #57d98a;
+
+  --font-display: "Big Shoulders Display", "Big Shoulders", "Arial Narrow", sans-serif;
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-ctl: 10px;
+  --radius-panel: 16px;
+  --radius-media: 6px;
+
+  --ease-snap: cubic-bezier(0.2, 0.9, 0.1, 1);
+}
+
+@layer base {
+  html {
+    background: var(--color-ink);
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    min-height: 100dvh;
+    background: var(--color-ink);
+  }
+  ::selection {
+    background: var(--color-signal);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+  button, [role="button"], label[for] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  input, textarea, select {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    font-weight: 800;
+    line-height: 0.88;
+    letter-spacing: -0.005em;
+    text-transform: uppercase;
+  }
+  .field {
+    width: 100%;
+    background: var(--color-coal-2);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-ctl);
+    padding: 0.7rem 0.85rem;
+    color: var(--color-paper);
+    transition: border-color 0.15s;
+  }
+  .field::placeholder { color: #6e6e76; }
+  .field:hover { border-color: #3d3d43; }
+  .field:focus { border-color: var(--color-signal); outline: none; }
+  .label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-mist);
+    margin-bottom: 0.4rem;
+  }
+  .hint {
+    font-size: 0.8125rem;
+    color: var(--color-smoke);
+    line-height: 1.45;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-ctl);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    padding: 0.7rem 1.1rem;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn-signal { background: var(--color-signal); color: var(--color-ink); }
+  .btn-signal:hover:not(:disabled) { background: #ffe14d; }
+  .btn-signal:disabled { background: #4a4320; color: #8f8667; }
+  .btn-ghost { border: 1px solid var(--color-line); color: var(--color-paper); }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--color-mist); }
+  .btn-ghost:disabled { color: #5d5d64; }
+  .btn-quiet { color: var(--color-mist); padding: 0.45rem 0.6rem; }
+  .btn-quiet:hover:not(:disabled) { color: var(--color-paper); background: var(--color-coal-2); }
+  .panel {
+    background: var(--color-coal);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-panel);
+  }
+  .chip {
+    border: 1px solid var(--color-line);
+    border-radius: 999px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-mist);
+    transition: all 0.15s;
+  }
+  .chip:hover:not(:disabled) { border-color: #4a4a52; color: var(--color-paper); }
+  .chip[aria-pressed="true"], .chip[aria-checked="true"] {
+    background: var(--color-paper);
+    border-color: var(--color-paper);
+    color: var(--color-ink);
+  }
+  .chip:disabled { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes pulse-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.processing-bar {
+  position: relative;
+  overflow: hidden;
+}
+.processing-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 33%;
+  background: linear-gradient(90deg, transparent, rgba(255, 209, 0, 0.55), transparent);
+  animation: pulse-bar 1.6s linear infinite;
+}
